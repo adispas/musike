@@ -1,0 +1,65 @@
+# Test builds of the Cast branch on every push to feature/cast, so changes can be tried without a local toolchain:
+# - Android: a debug APK (signed with Android's debug key, no secrets needed) with its own app id,
+#   app.musike.android.cast, so it installs next to the regular Musike app.
+# - Windows: the regular installer. It is the same app as Musike, so installing it updates an existing Musike.
+# Download it from the "Cast test build" pre-release (Releases → cast-test), replaced by each build; no sign-in needed.
+name: Cast test builds
+
+on:
+  push:
+    branches: [feature/cast]
+  workflow_dispatch:
+
+permissions:
+  contents: write # to replace the APK on the cast-test pre-release
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+      - run: pnpm install --frozen-lockfile
+      # The web app built for the phone, copied into the Android project.
+      - run: pnpm --filter @musike/mobile build
+      - run: sh gradlew assembleDebug --console=plain
+        working-directory: mobile/android
+      - name: Publish to the cast-test pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp mobile/android/app/build/outputs/apk/debug/app-debug.apk Musike-Cast-test.apk
+          # Both jobs may get here first: whichever loses the race to create the release just uploads.
+          gh release view cast-test >/dev/null 2>&1 || gh release create cast-test --prerelease --target "$GITHUB_SHA" \
+            --title "Cast test build" --notes "Test builds of the Cast branch, replaced by every push to feature/cast." || true
+          gh release upload cast-test Musike-Cast-test.apk --clobber
+          gh release edit cast-test --notes "Test builds of the Cast branch (commit ${GITHUB_SHA::7}), replaced by every push to feature/cast. The APK installs next to the regular Musike app; the Windows installer updates an existing Musike."
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter musike-desktop dist
+      - name: Publish to the cast-test pre-release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp release/*-Windows.exe Musike-Cast-test-Windows-Setup.exe
+          gh release view cast-test >/dev/null 2>&1 || gh release create cast-test --prerelease --target "$GITHUB_SHA" \
+            --title "Cast test build" --notes "Test builds of the Cast branch, replaced by every push to feature/cast." || true
+          gh release upload cast-test Musike-Cast-test-Windows-Setup.exe --clobber
