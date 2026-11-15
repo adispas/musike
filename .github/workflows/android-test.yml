@@ -1,13 +1,16 @@
 # Builds a test APK of the Android app on every push to feature/cast, so changes can be tried on a phone without
 # setting up Android Studio. It's a debug build (signed with Android's debug key, no secrets needed) with its own
 # app id, app.musike.android.cast, so it installs next to the regular Musike app.
-# Download it from the run's page: Actions → Android test APK → the latest run → Artifacts.
+# Download it from the "Cast test build" pre-release (Releases → cast-test), replaced by each build; no sign-in needed.
 name: Android test APK
 
 on:
   push:
     branches: [feature/cast]
   workflow_dispatch:
+
+permissions:
+  contents: write # to replace the APK on the cast-test pre-release
 
 jobs:
   apk:
@@ -28,8 +31,12 @@ jobs:
       - run: pnpm --filter @musike/mobile build
       - run: sh gradlew assembleDebug --console=plain
         working-directory: mobile/android
-      - uses: actions/upload-artifact@v7
-        with:
-          name: musike-cast-android-test
-          path: mobile/android/app/build/outputs/apk/debug/*.apk
-          if-no-files-found: error
+      - name: Publish to the cast-test pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp mobile/android/app/build/outputs/apk/debug/app-debug.apk Musike-Cast-test.apk
+          gh release view cast-test >/dev/null 2>&1 || gh release create cast-test --prerelease --target "$GITHUB_SHA" \
+            --title "Cast test build" --notes "Test APK of the Cast branch, replaced by every push to feature/cast. Installs next to the regular Musike app."
+          gh release upload cast-test Musike-Cast-test.apk --clobber
+          gh release edit cast-test --notes "Test APK of the Cast branch (commit ${GITHUB_SHA::7}), replaced by every push to feature/cast. Installs next to the regular Musike app."
