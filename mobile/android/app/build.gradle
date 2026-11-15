@@ -39,6 +39,11 @@ android {
         }
     }
     buildTypes {
+        // Test builds (the "Android test APK" workflow) install next to the regular Musike app.
+        debug {
+            applicationIdSuffix ".cast"
+            versionNameSuffix "-cast"
+        }
         release {
             if (releaseStore) signingConfig signingConfigs.release
             minifyEnabled false
