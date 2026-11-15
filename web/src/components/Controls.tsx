@@ -15,6 +15,7 @@ import {
 } from "@phosphor-icons/react";
 import { useState } from "react";
 import { useShallow } from "zustand/react/shallow";
+import { useCast } from "../cast/cast";
 import { useT } from "../i18n";
 import { capabilities } from "../lib/api";
 import { cn, formatTime } from "../lib/format";
@@ -126,10 +127,11 @@ export function Scrubber({ touch = false, className }: { touch?: boolean; classN
 
 export function Volume({ className }: { className?: string }) {
   const t = useT();
-  const volume = usePlayer((s) => s.volume);
-  const muted = usePlayer((s) => s.muted);
-  const setVolume = usePlayer((s) => s.setVolume);
-  const toggleMute = usePlayer((s) => s.toggleMute);
+  // While casting, the slider is the cast device's own volume.
+  const casting = useCast((s) => s.device !== null);
+  const local = usePlayer(useShallow((s) => ({ volume: s.volume, muted: s.muted, setVolume: s.setVolume, toggleMute: s.toggleMute })));
+  const remote = useCast(useShallow((s) => ({ volume: s.volume, muted: s.muted, setVolume: s.setVolume, toggleMute: s.toggleMute })));
+  const { volume, muted, setVolume, toggleMute } = casting ? remote : local;
   const level = muted ? 0 : volume;
   const Glyph = level === 0 ? SpeakerXIcon : level < 0.5 ? SpeakerLowIcon : SpeakerHighIcon;
   return (

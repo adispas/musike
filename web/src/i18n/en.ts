@@ -169,6 +169,27 @@ export const en = {
     httpError: (status: number) => `Error ${status}`,
   },
 
+  cast: {
+    cast: "Cast",
+    castTo: "Cast to a speaker or TV",
+    castingTo: (name: string) => `Casting to ${name}`,
+    pickerTitle: "Cast",
+    searching: "Looking for devices on your Wi-Fi…",
+    noneFound: "No devices found. Make sure the speaker or TV is on and on the same Wi-Fi.",
+    connecting: "Connecting…",
+    stop: "Stop casting",
+    connected: "Connected",
+    audioOnly: "Casting plays audio. Video mode resumes when you stop casting.",
+    couldNotConnect: (name: string, reason: string) => `Couldn't connect to ${name || "the device"}. ${reason}`,
+    errors: {
+      lost: "Lost the connection to the cast device.",
+      takenOver: "Another app started playing on the cast device.",
+      noNetwork: "Couldn't find this computer on the local network.",
+      streamFailed: "The cast device couldn't play this track.",
+      unavailable: "Casting needs Google Play services on this phone.",
+    },
+  },
+
   nowPlaying: {
     title: "Now playing",
     coverOf: (title: string) => `Cover of ${title}`,

@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { app, BrowserWindow, ipcMain, Menu, screen, shell } from "electron";
 import type { RunningServer } from "../../server/src/app.js";
 import { backupLibraryOnUpdate } from "./backup.js";
+import { CastService, type LoadRequest } from "./cast/service.js";
 
 // No top-level await in this file: Electron only fires "ready" after the entry module finishes
 // evaluating, so awaiting it at the top level would hang forever.
@@ -157,6 +158,12 @@ function createMainWindow(url: string): BrowserWindow {
 let mainWindow: BrowserWindow | null = null;
 let server: RunningServer | null = null;
 
+// Google Cast: discovery, the session and the LAN proxy the device streams from (src/cast).
+const cast = new CastService(
+  () => server?.port ?? PORT,
+  (event, payload) => mainWindow?.webContents.send("musike:cast-event", event, payload),
+);
+
 async function launch() {
   const splash = createSplash();
   const s = await loadServer();
@@ -207,6 +214,19 @@ ipcMain.on("musike:retry", (event) => {
   failed?.destroy();
 });
 
+ipcMain.on("musike:cast", (_event, action: unknown) => {
+  if (action === "startDiscovery") cast.startDiscovery();
+  else if (action === "stopDiscovery") cast.stopDiscovery();
+});
+ipcMain.handle("musike:cast-connect", (_event, id: unknown) => cast.connect(String(id)));
+ipcMain.handle("musike:cast-disconnect", () => cast.disconnect());
+ipcMain.handle("musike:cast-load", (_event, media: LoadRequest) => cast.load(media));
+ipcMain.handle("musike:cast-command", (_event, name: unknown, value: unknown) => {
+  if (name === "play" || name === "pause" || name === "seek" || name === "volume" || name === "mute") {
+    cast.command(name, typeof value === "number" || typeof value === "boolean" ? value : undefined);
+  }
+});
+
 app.on("second-instance", () => {
   if (!mainWindow) return;
   if (mainWindow.isMinimized()) mainWindow.restore();
@@ -214,7 +234,10 @@ app.on("second-instance", () => {
 });
 
 app.on("window-all-closed", () => app.quit());
-app.on("before-quit", () => void server?.close());
+app.on("before-quit", () => {
+  void cast.shutdown(); // the speaker stops instead of playing out its buffer
+  void server?.close();
+});
 
 void app.whenReady().then(() => {
   // macOS needs an app menu: without the Edit menu, Cmd+C/V/A don't reach text fields, and Cmd+Q has no home.

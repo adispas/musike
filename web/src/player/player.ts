@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { castBackend, isCasting, useCast } from "../cast/cast";
 import { getT, useT } from "../i18n";
 import { api, capabilities, explainStreamError, streamSource, systemMedia, type ApiError, type ErrorCode } from "../lib/api";
 import { createAudio } from "../lib/audio";
@@ -77,6 +78,8 @@ let loaded: { id: string; kind: Kind; quality: Quality } | null = null;
 let pendingSeek = 0;
 let token = 0;
 let recordedToken = -1;
+/** A track is on its way to the cast device: its statuses until then still describe the previous one. */
+let castLoading = false;
 
 const STORAGE_KEY = "musike:player";
 
@@ -132,16 +135,18 @@ function lookupClip(track: Track): Promise<string | null> {
   return lookup;
 }
 
+// Casting is audio only, so there is no clip to look for.
 const needsClipLookup = (track: Track, preferVideo: boolean) =>
-  preferVideo && track.kind === "song" && !clipFor.has(track.id);
+  preferVideo && track.kind === "song" && !clipFor.has(track.id) && !isCasting();
 
 export const usePlayer = create<PlayerState>((set, get) => {
   const kindFor = (track: Track): Kind =>
-    capabilities.video && get().preferVideo && (track.kind === "video" || !!clipFor.get(track.id)) ? "video" : "audio";
+    !isCasting() && capabilities.video && get().preferVideo && (track.kind === "video" || !!clipFor.get(track.id)) ? "video" : "audio";
   /** The YouTube id to stream: the song itself, or its music video in Video mode. */
   const mediaIdFor = (track: Track, kind: Kind) =>
     kind === "video" && track.kind !== "video" ? clipFor.get(track.id)! : track.id;
   const noteFor = (track: Track) =>
+    !isCasting() &&
     get().preferVideo && track.kind === "song" && clipFor.get(track.id) === null ? ("noClip" as const) : null;
   const activeMedia = (): HTMLMediaElement | null => (loaded ? mediaFor(loaded.kind) : null);
 
@@ -174,6 +179,8 @@ export const usePlayer = create<PlayerState>((set, get) => {
       void lookupClip(track).then(() => mine === token && load(index, opts));
       return;
     }
+
+    if (isCasting()) return loadOnCast(index, track, opts);
 
     const kind = kindFor(track);
     const media = mediaFor(kind);
@@ -218,6 +225,60 @@ export const usePlayer = create<PlayerState>((set, get) => {
     setMetadata(track);
   }
 
+  /** Stops both media elements here and lets go of their streams. */
+  function silenceLocal() {
+    for (const m of [audio, videoEl]) {
+      m.pause();
+      if (m.getAttribute("src")) {
+        m.removeAttribute("src");
+        m.load();
+      }
+    }
+  }
+
+  /** Casting: the device fetches the track itself; this side only follows its status (see the listener below). */
+  function loadOnCast(index: number, track: Track, opts: { autoplay?: boolean; startAt?: number }) {
+    const s = get();
+    silenceLocal();
+    const mine = ++token;
+    loaded = { id: track.id, kind: "audio", quality: s.quality };
+    pendingSeek = 0;
+    castLoading = true;
+    const autoplay = opts.autoplay !== false;
+    const startAt = opts.startAt ?? 0;
+    set({
+      index,
+      mediaKind: "audio",
+      status: autoplay ? "loading" : "paused",
+      statusText: null,
+      videoNote: null,
+      position: startAt,
+      duration: track.duration,
+      buffered: 0,
+    });
+    setMetadata(track);
+    castBackend!
+      .load({
+        id: track.id,
+        title: track.title,
+        artist: track.artist,
+        album: track.album ?? "",
+        artwork: track.art || track.thumb,
+        startAt,
+        autoplay,
+      })
+      .then(
+        () => {
+          if (mine === token) castLoading = false;
+        },
+        (err: Error & { code?: ErrorCode }) => {
+          if (mine !== token) return;
+          castLoading = false;
+          report(err.message || getT().cast.errors.streamFailed, err.code);
+        },
+      );
+  }
+
   async function continueWithRadio() {
     const s = get();
     const last = s.queue[s.index];
@@ -254,6 +315,7 @@ export const usePlayer = create<PlayerState>((set, get) => {
   function onEnded() {
     const s = get();
     if (s.repeat === "one") {
+      if (isCasting()) return load(s.index);
       const media = activeMedia();
       if (media) {
         media.currentTime = 0;
@@ -304,7 +366,8 @@ export const usePlayer = create<PlayerState>((set, get) => {
   }
 
   function wire(media: HTMLMediaElement) {
-    const isActive = () => activeMedia() === media;
+    // While casting, the elements here are silent: nothing they report is about what's playing.
+    const isActive = () => !isCasting() && activeMedia() === media;
     media.addEventListener("loadedmetadata", () => {
       if (!isActive()) return;
       if (pendingSeek > 0) {
@@ -349,6 +412,40 @@ export const usePlayer = create<PlayerState>((set, get) => {
   }
   wire(audio);
   wire(videoEl);
+
+  // The cast device's player drives the status, the position and the move to the next track.
+  castBackend?.on("status", (st) => {
+    if (!isCasting() || !loaded || castLoading) return;
+    if (st.state === "idle") {
+      if (st.idleReason === "finished") onEnded();
+      else if (st.idleReason === "error") report(getT().cast.errors.streamFailed);
+      return; // stopped from elsewhere or replaced: the session events handle that
+    }
+    const status: Status = st.state === "playing" ? "playing" : st.state === "paused" ? "paused" : "loading";
+    set({ status, statusText: null, position: st.position, ...(st.duration > 0 ? { duration: st.duration } : {}) });
+    if (status === "playing") onStarted();
+    syncPlaybackState();
+  });
+
+  // Starting to cast hands the current track over at the same spot; stopping brings it back here, paused.
+  let wasCasting = isCasting();
+  useCast.subscribe((c) => {
+    const casting = c.device !== null;
+    if (casting === wasCasting) return;
+    wasCasting = casting;
+    const s = get();
+    const track = s.queue[s.index];
+    if (casting) {
+      if (track && s.status !== "idle") load(s.index, { startAt: s.position, autoplay: s.status === "playing" || s.status === "loading" });
+      else silenceLocal();
+      return;
+    }
+    loaded = null; // the next Play loads the track here, from the position the device reached
+    castLoading = false;
+    token++;
+    if (track) set({ status: "paused", statusText: null });
+    syncPlaybackState();
+  });
 
   const reloadIfKindChanged = () => {
     const s = get();
@@ -441,6 +538,7 @@ export const usePlayer = create<PlayerState>((set, get) => {
       if (queue[i]) load(i, { autoplay: s.status === "playing" });
       else {
         activeMedia()?.pause();
+        if (isCasting()) void castBackend!.pause().catch(() => {});
         loaded = null;
         set({ index: Math.max(0, queue.length - 1), status: queue.length ? "paused" : "idle", position: 0 });
       }
@@ -476,6 +574,11 @@ export const usePlayer = create<PlayerState>((set, get) => {
         (kind === "video" && loaded.quality !== s.quality) ||
         needsClipLookup(track, s.preferVideo);
       if (stale || s.status === "error") return load(s.index, { startAt: s.position });
+      if (isCasting()) {
+        if (s.status === "playing" || s.status === "loading") void castBackend!.pause().catch(() => {});
+        else void castBackend!.play().catch(() => {});
+        return;
+      }
       const media = mediaFor(kind);
       if (media.paused) play(media);
       else media.pause();
@@ -497,6 +600,11 @@ export const usePlayer = create<PlayerState>((set, get) => {
     seek: (seconds) => {
       const t = Math.max(0, Math.min(seconds, get().duration || seconds));
       set({ position: t });
+      if (isCasting()) {
+        const track = get().queue[get().index];
+        if (track && loaded?.id === track.id && !castLoading) void castBackend!.seek(t).catch(() => {});
+        return;
+      }
       const media = activeMedia();
       const track = get().queue[get().index];
       if (!media || !track || loaded?.id !== track.id || media.readyState === 0) {

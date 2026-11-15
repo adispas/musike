@@ -163,6 +163,27 @@ export const pt: Messages = {
     httpError: (status) => `Erro ${status}`,
   },
 
+  cast: {
+    cast: "Transmitir",
+    castTo: "Transmitir para uma caixa de som ou TV",
+    castingTo: (name: string) => `Transmitindo para ${name}`,
+    pickerTitle: "Transmitir",
+    searching: "Procurando dispositivos no seu Wi-Fi…",
+    noneFound: "Nenhum dispositivo encontrado. Verifique se a caixa de som ou a TV está ligada e no mesmo Wi-Fi.",
+    connecting: "Conectando…",
+    stop: "Parar de transmitir",
+    connected: "Conectado",
+    audioOnly: "A transmissão toca só o áudio. O modo Vídeo volta quando você parar de transmitir.",
+    couldNotConnect: (name: string, reason: string) => `Não foi possível conectar a ${name || "o dispositivo"}. ${reason}`,
+    errors: {
+      lost: "A conexão com o dispositivo de transmissão caiu.",
+      takenOver: "Outro app começou a tocar no dispositivo de transmissão.",
+      noNetwork: "Não foi possível encontrar este computador na rede local.",
+      streamFailed: "O dispositivo de transmissão não conseguiu tocar esta faixa.",
+      unavailable: "Para transmitir, este celular precisa do Google Play Services.",
+    },
+  },
+
   nowPlaying: {
     title: "Tocando agora",
     coverOf: (title) => `Capa de ${title}`,
