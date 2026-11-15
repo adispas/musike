@@ -1,0 +1,35 @@
+# Builds a test APK of the Android app on every push to feature/cast, so changes can be tried on a phone without
+# setting up Android Studio. It's a debug build (signed with Android's debug key, no secrets needed) with its own
+# app id, app.musike.android.cast, so it installs next to the regular Musike app.
+# Download it from the run's page: Actions → Android test APK → the latest run → Artifacts.
+name: Android test APK
+
+on:
+  push:
+    branches: [feature/cast]
+  workflow_dispatch:
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+      - run: pnpm install --frozen-lockfile
+      # The web app built for the phone, copied into the Android project.
+      - run: pnpm --filter @musike/mobile build
+      - run: sh gradlew assembleDebug --console=plain
+        working-directory: mobile/android
+      - uses: actions/upload-artifact@v7
+        with:
+          name: musike-cast-android-test
+          path: mobile/android/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error

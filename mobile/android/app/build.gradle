@@ -39,6 +39,11 @@ android {
         }
     }
     buildTypes {
+        // Test builds (the "Android test APK" workflow) install next to the regular Musike app.
+        debug {
+            applicationIdSuffix ".cast"
+            versionNameSuffix "-cast"
+        }
         release {
             if (releaseStore) signingConfig signingConfigs.release
             minifyEnabled false
@@ -59,6 +64,9 @@ dependencies {
     implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
     implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
     implementation project(':capacitor-android')
+    // Google Cast (MusikeCastPlugin): the Cast SDK and the MediaRouter it finds devices with.
+    implementation "com.google.android.gms:play-services-cast-framework:$castFrameworkVersion"
+    implementation "androidx.mediarouter:mediarouter:$androidxMediaRouterVersion"
     testImplementation "junit:junit:$junitVersion"
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
     androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"

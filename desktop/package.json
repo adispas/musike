@@ -118,10 +118,14 @@
     }
   },
   "devDependencies": {
+    "@types/multicast-dns": "^7.2.4",
     "@types/node": "^22.20.5",
     "electron": "44.7.0",
     "electron-builder": "26.15.3",
     "esbuild": "0.28.2",
     "typescript": "^7.0.2"
+  },
+  "dependencies": {
+    "multicast-dns": "^7.2.5"
   }
 }
